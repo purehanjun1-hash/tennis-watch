@@ -2,7 +2,7 @@ name: tennis-watch
 
 on:
   schedule:
-    - cron: "*/30 * * * *"   # 30분마다 (GitHub 사정으로 몇 분 늦을 수 있음)
+    - cron: "7,37 * * * *"   # 30분마다 (정각·30분은 GitHub이 붐벼서 자주 건너뛰므로 7분·37분에)
   workflow_dispatch:          # Actions 화면의 'Run workflow' 버튼으로 바로 실행
     inputs:
       test_alert:
