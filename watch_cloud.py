@@ -157,6 +157,9 @@ def main():
     date, tm, sites = s.get("date"), s.get("time", "20:00~22:00"), s.get("sites", [])
     today = dt.datetime.now(KST).date()
 
+    if os.environ.get("TEST_ALERT") == "true":
+        push_phone(topic, "클라우드 감시 시험", "GitHub 클라우드에서 보낸 시험 알림입니다. 잘 받으셨으면 설정 완료!")
+
     if not s.get("on", True):
         log("settings.json에서 감시가 꺼져 있습니다 (on: false).")
         return

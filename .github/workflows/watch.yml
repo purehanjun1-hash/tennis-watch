@@ -4,6 +4,11 @@ on:
   schedule:
     - cron: "*/30 * * * *"   # 30분마다 (GitHub 사정으로 몇 분 늦을 수 있음)
   workflow_dispatch:          # Actions 화면의 'Run workflow' 버튼으로 바로 실행
+    inputs:
+      test_alert:
+        description: "휴대폰 시험 알림 보내기"
+        type: boolean
+        default: false
 
 permissions:
   contents: write             # state.json 저장용
@@ -29,6 +34,7 @@ jobs:
         env:
           NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
           PYTHONUTF8: "1"
+          TEST_ALERT: ${{ inputs.test_alert }}
         run: python watch_cloud.py
       - name: Save state
         run: |
