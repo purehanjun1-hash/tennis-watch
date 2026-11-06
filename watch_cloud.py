@@ -162,10 +162,10 @@ def main():
 
     if not s.get("on", True):
         log("settings.json에서 감시가 꺼져 있습니다 (on: false).")
-        return
+        return False
     if not date or dt.date.fromisoformat(date) < today:
         log(f"감시 날짜({date})가 지났거나 없습니다. settings.json의 date를 바꾸세요.")
-        return
+        return False
 
     log(f"확인: {', '.join(sites)} / {date} {tm}")
     found = []
@@ -194,7 +194,20 @@ def main():
     state = {key: sorted(now_keys)}
     with open(os.path.join(HERE, "state.json"), "w", encoding="utf-8") as fp:
         json.dump(state, fp, ensure_ascii=False, indent=1)
+    return True
 
 
 if __name__ == "__main__":
-    main()
+    # GitHub 예약 실행은 몇 시간씩 밀릴 수 있어서, 한 번 실행되면 LOOP_HOURS 동안
+    # 이 안에서 정해진 간격으로 계속 확인한다. 끝나면 워크플로가 다음 실행을 스스로 건다.
+    hours = float(os.environ.get("LOOP_HOURS") or 0)
+    gap = int(load("settings.json", {}).get("minutes", 30)) * 60
+    end = time.time() + hours * 3600
+    while True:
+        if not main():
+            open(os.path.join(HERE, "stop"), "w").close()   # 감시 끝 → 다음 실행 걸지 않음
+            break
+        if time.time() + gap > end:
+            break
+        log(f"{gap // 60}분 뒤 다시 확인")
+        time.sleep(gap)

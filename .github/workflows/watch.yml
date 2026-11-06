@@ -2,7 +2,7 @@ name: tennis-watch
 
 on:
   schedule:
-    - cron: "7,37 * * * *"   # 30분마다 (정각·30분은 GitHub이 붐벼서 자주 건너뛰므로 7분·37분에)
+    - cron: "7,37 * * * *"   # 예비용: 반복 실행이 끊겼을 때 다시 살린다 (GitHub 사정으로 자주 밀림)
   workflow_dispatch:          # Actions 화면의 'Run workflow' 버튼으로 바로 실행
     inputs:
       test_alert:
@@ -12,15 +12,16 @@ on:
 
 permissions:
   contents: write             # state.json 저장용
+  actions: write              # 끝날 때 다음 실행을 스스로 걸기 위해
 
 concurrency:
   group: tennis-watch
-  cancel-in-progress: false
+  cancel-in-progress: false   # 하나가 도는 중이면 다음 것은 기다린다 (동시에 두 개 안 돎)
 
 jobs:
   watch:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 350
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -30,15 +31,23 @@ jobs:
         run: |
           pip install playwright==1.48.0
           python -m playwright install --with-deps chromium
-      - name: Check
+      - name: Check (30분마다, 약 5시간 동안)
         env:
           NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
           PYTHONUTF8: "1"
           TEST_ALERT: ${{ inputs.test_alert }}
+          LOOP_HOURS: "5"
         run: python watch_cloud.py
       - name: Save state
+        if: always()
         run: |
           git config user.name "tennis-watch"
           git config user.email "tennis-watch@users.noreply.github.com"
           git add state.json
-          git diff --cached --quiet || (git commit -m "state" && git push)
+          git diff --cached --quiet || (git commit -m "state" && git pull --rebase -q && git push)
+      - name: Start next run
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ -f stop ]; then echo "감시 끝 (날짜 지남 또는 꺼짐)"; else gh workflow run watch.yml --ref main; fi
