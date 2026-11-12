@@ -154,8 +154,11 @@ def load(name, default):
 def main():
     s = load("settings.json", {})
     topic = os.environ.get("NTFY_TOPIC", "").strip()
-    date, tm, sites = s.get("date"), s.get("time", "20:00~22:00"), s.get("sites", [])
+    tm, sites = s.get("time", "20:00~22:00"), s.get("sites", [])
     today = dt.datetime.now(KST).date()
+    # 날짜는 "dates": [..] 여러 개 또는 "date": ".." 하나. 지난 날짜는 건너뛴다.
+    all_dates = s.get("dates") or ([s["date"]] if s.get("date") else [])
+    dates = [d for d in all_dates if dt.date.fromisoformat(d) >= today]
 
     if os.environ.get("TEST_ALERT") == "true":
         push_phone(topic, "클라우드 감시 시험", "GitHub 클라우드에서 보낸 시험 알림입니다. 잘 받으셨으면 설정 완료!")
@@ -163,35 +166,37 @@ def main():
     if not s.get("on", True):
         log("settings.json에서 감시가 꺼져 있습니다 (on: false).")
         return False
-    if not date or dt.date.fromisoformat(date) < today:
-        log(f"감시 날짜({date})가 지났거나 없습니다. settings.json의 date를 바꾸세요.")
+    if not dates:
+        log(f"감시 날짜({', '.join(all_dates) or '없음'})가 모두 지났습니다. settings.json의 dates를 바꾸세요.")
         return False
 
-    log(f"확인: {', '.join(sites)} / {date} {tm}")
-    found = []
     checks = {"스포원": check_spowon, "수목원": check_arboretum, "송정": check_songjeong}
-    for site in sites:
-        try:
-            f, ok, total = checks[site](date, tm)
-        except Exception as e:
-            log(f"{site} 확인 전체 실패: {e}")
-            continue
-        log(f"{site}: {ok}/{total}개 코트 확인, 빈자리 {len(f)}곳")
-        found += f
+    old_state = load("state.json", {})
+    state = {}
+    for date in dates:
+        log(f"확인: {', '.join(sites)} / {date} {tm}")
+        found = []
+        for site in sites:
+            try:
+                f, ok, total = checks[site](date, tm)
+            except Exception as e:
+                log(f"{site} 확인 전체 실패: {e}")
+                continue
+            log(f"{site}: {ok}/{total}개 코트 확인, 빈자리 {len(f)}곳")
+            found += f
 
-    state = load("state.json", {})
-    key = f"{date} {tm}"
-    alerted = set(state.get(key, []))
-    now_keys = {f"{a} {b}" for a, b, _ in found}
-    new = [f for f in found if f"{f[0]} {f[1]}" not in alerted]
-    if new:
-        courts = ", ".join(f"{a} {b}" for a, b, _ in new)
-        log(f"!! 새 빈자리: {courts}")
-        push_phone(topic, f"빈자리! {date[5:]} {tm}", f"{courts}\n빨리 예약하세요. (누르면 예약 페이지가 열립니다)", new[0][2])
-    else:
-        log("새 빈자리 없음")
-    # 다시 마감된 자리는 지워서, 나중에 또 비면 다시 알린다
-    state = {key: sorted(now_keys)}
+        key = f"{date} {tm}"
+        alerted = set(old_state.get(key, []))
+        now_keys = {f"{a} {b}" for a, b, _ in found}
+        new = [f for f in found if f"{f[0]} {f[1]}" not in alerted]
+        if new:
+            courts = ", ".join(f"{a} {b}" for a, b, _ in new)
+            log(f"!! 새 빈자리: {courts}")
+            push_phone(topic, f"빈자리! {date[5:]} {tm}", f"{courts}\n빨리 예약하세요. (누르면 예약 페이지가 열립니다)", new[0][2])
+        else:
+            log("새 빈자리 없음")
+        # 다시 마감된 자리는 지워서, 나중에 또 비면 다시 알린다
+        state[key] = sorted(now_keys)
     with open(os.path.join(HERE, "state.json"), "w", encoding="utf-8") as fp:
         json.dump(state, fp, ensure_ascii=False, indent=1)
     return True
