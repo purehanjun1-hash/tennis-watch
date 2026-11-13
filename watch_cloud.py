@@ -65,14 +65,14 @@ def post_json(url, fields):
     raise err
 
 
-def check_spowon(date, tm):
+def check_spowon(date, tm, kinds=("실외", "실내")):
     from playwright.sync_api import sync_playwright
     found, ok = [], 0
     ymd = date.replace("-", "")
     with sync_playwright() as p:
         b = p.chromium.launch()
         pg = b.new_context(ignore_https_errors=True, user_agent=UA, locale="ko-KR").new_page()
-        for kind in ("실외", "실내"):
+        for kind in kinds:
             for name, pid in SP_COURTS[kind]:
                 url = SP_URL.format(ymd=ymd, part=SP_PART[kind], place=pid)
                 try:
@@ -87,7 +87,7 @@ def check_spowon(date, tm):
                     found.append(("스포원", f"{kind} {name}", url))
                 time.sleep(0.3)
         b.close()
-    return found, ok, 19
+    return found, ok, sum(len(SP_COURTS[k]) for k in kinds)
 
 
 def check_arboretum(date, tm):
@@ -154,11 +154,15 @@ def load(name, default):
 def main():
     s = load("settings.json", {})
     topic = os.environ.get("NTFY_TOPIC", "").strip()
-    tm, sites = s.get("time", "20:00~22:00"), s.get("sites", [])
+    tm = s.get("time", "20:00~22:00")
     today = dt.datetime.now(KST).date()
-    # 날짜는 "dates": [..] 여러 개 또는 "date": ".." 하나. 지난 날짜는 건너뛴다.
-    all_dates = s.get("dates") or ([s["date"]] if s.get("date") else [])
-    dates = [d for d in all_dates if dt.date.fromisoformat(d) >= today]
+    # 감시 목록: "watches": [{"date": .., "sites": [..]}] (날짜마다 사이트를 다르게)
+    # 예전 형식 "dates"/"date" + "sites"도 그대로 쓸 수 있다. 지난 날짜는 건너뛴다.
+    watches = s.get("watches") or [{"date": d, "sites": s.get("sites", [])}
+                                    for d in (s.get("dates") or ([s["date"]] if s.get("date") else []))]
+    all_dates = [w["date"] for w in watches]
+    watches = [w for w in watches if dt.date.fromisoformat(w["date"]) >= today]
+    dates = [w["date"] for w in watches]
 
     if os.environ.get("TEST_ALERT") == "true":
         push_phone(topic, "클라우드 감시 시험", "GitHub 클라우드에서 보낸 시험 알림입니다. 잘 받으셨으면 설정 완료!")
@@ -170,10 +174,13 @@ def main():
         log(f"감시 날짜({', '.join(all_dates) or '없음'})가 모두 지났습니다. settings.json의 dates를 바꾸세요.")
         return False
 
-    checks = {"스포원": check_spowon, "수목원": check_arboretum, "송정": check_songjeong}
+    checks = {"스포원": check_spowon, "수목원": check_arboretum, "송정": check_songjeong,
+              "스포원 실내": lambda d, t: check_spowon(d, t, ("실내",)),
+              "스포원 실외": lambda d, t: check_spowon(d, t, ("실외",))}
     old_state = load("state.json", {})
     state = {}
-    for date in dates:
+    for w in watches:
+        date, sites = w["date"], w["sites"]
         log(f"확인: {', '.join(sites)} / {date} {tm}")
         found = []
         for site in sites:
