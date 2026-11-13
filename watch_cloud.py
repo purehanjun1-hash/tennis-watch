@@ -46,6 +46,12 @@ SJ_PAGE = "http://www.hud7330.com/booking_g/sports_res_index.php?ca=4&toYear={y}
 SJ_COURTS = [("1코트", "5"), ("2코트", "9"), ("3코트", "10"), ("4코트", "11"), ("5코트", "12"), ("6코트", "13")]
 
 
+# ---- 을숙도 (사하구 을숙도 다목적 실내생활체육관, 테니스 1~6번 코트) ----
+EU_TIME = "https://saha-eulsukdogym.kr/webProgram/reserve/_reserveTime.php?sel_date={date}&r_court={court}"
+EU_PAGE = "https://saha-eulsukdogym.kr/html/?pCode=7"
+EU_COURTS = [(f"{i}번 코트", f"TS0{i}") for i in range(1, 7)]
+
+
 def log(msg):
     print(f"[{dt.datetime.now(KST).strftime('%H:%M:%S')}] {msg}", flush=True)
 
@@ -130,6 +136,31 @@ def check_songjeong(date, tm):
     return found, ok, 6
 
 
+def check_eulsukdo(date, tm):
+    """시간표 칸마다 data-reserved="Y"(예약완료) / "N"(빈자리)가 붙어 있다. 로그인 없이 볼 수 있다."""
+    import re
+    begin, end = tm.split("~")
+    found, ok = [], 0
+    for name, code in EU_COURTS:
+        try:
+            req = urllib.request.Request(EU_TIME.format(date=date, court=code), headers={"User-Agent": UA})
+            with urllib.request.urlopen(req, timeout=25) as r:
+                html = r.read().decode("utf-8", "replace")
+            html = re.sub(r"<!--.*?-->", "", html, flags=re.S)   # 주석 처리된 옛 시간표는 무시
+            opts = re.findall(r"<option[^>]*data-begin-time=\"([\d:]+)\"[^>]*data-end-time=\"([\d:]+)\""
+                              r"[^>]*data-reserved=\"([YN])\"", html)
+            if not opts:
+                raise RuntimeError("시간표를 못 읽음")
+            ok += 1
+        except Exception as e:
+            log(f"  을숙도 {name} 확인 실패: {e}")
+            continue
+        if any(b == begin and e == end and rsv == "N" for b, e, rsv in opts):
+            found.append(("을숙도", name, EU_PAGE))
+        time.sleep(0.5)
+    return found, ok, 6
+
+
 def push_phone(topic, title, message, url=None):
     if not topic:
         log("  (NTFY_TOPIC이 없어 휴대폰 알림을 보내지 않음)")
@@ -175,6 +206,7 @@ def main():
         return False
 
     checks = {"스포원": check_spowon, "수목원": check_arboretum, "송정": check_songjeong,
+              "을숙도": check_eulsukdo,
               "스포원 실내": lambda d, t: check_spowon(d, t, ("실내",)),
               "스포원 실외": lambda d, t: check_spowon(d, t, ("실외",))}
     old_state = load("state.json", {})
